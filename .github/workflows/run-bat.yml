@@ -15,4 +15,4 @@ jobs:
         shell: cmd
         run: |
           echo Running system info script...
-          call "%~dp0system_info_report.bat"
+          call "%CD%\system_info_report.bat"
