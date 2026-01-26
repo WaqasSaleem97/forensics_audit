@@ -1,0 +1,18 @@
+name: Run System Info Script
+
+on:
+  workflow_dispatch: # Manual trigger
+
+jobs:
+  run-bat:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Run system_info_report.bat
+        shell: cmd
+        run: |
+          echo Running system info script...
+          call "%~dp0system_info_report.bat"
