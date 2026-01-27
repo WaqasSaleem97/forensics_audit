@@ -43,26 +43,73 @@ echo [2] DISK DRIVE INFORMATION
 echo ----------------------------------------------------------------
 echo Processing disk information...
 echo.
+
+set "DISK_PRINTED=0"
+
 if "!USE_WMIC!"=="1" (
-    for /f "skip=1 tokens=*" %%i in ('wmic diskdrive get model^,serialnumber^,size 2^>nul') do (
-        set "line=%%i"
-        if not "!line!"=="" (
-            for /f "tokens=1-3*" %%a in ("!line!") do (
-                if not "%%a"=="" if not "%%c"=="" (
-                    set /a sizeGB=%%c/1073741824 2>nul
-                    if !sizeGB! GTR 0 (
-                        echo Model: %%a %%d
-                        echo Serial Number: %%b
-                        echo Size: !sizeGB! GB
-                        echo --------------------------------
-                    )
+    REM Parse WMIC key=value lines silently
+    for /f "tokens=1* delims==" %%A in ('wmic diskdrive get model,serialnumber,size /format:list 2^>nul ^| findstr /R /C:".*"') do (
+        set "key=%%A"
+        set "value=%%B"
+        set "key=!key: =!"
+        for /f "tokens=* delims= " %%V in ("!value!") do set "value=%%V"
+
+        if /i "!key!"=="Model" (
+            set "model=!value!"
+        ) else if /i "!key!"=="SerialNumber" (
+            set "serial=!value!"
+        ) else if /i "!key!"=="Size" (
+            set "size=!value!"
+            if defined model (
+                if "!serial!"=="" set "serial=N/A"
+                if "!size!"=="" (
+                    set "sizeGB=0"
+                ) else (
+                    set /a sizeGB=!size!/1073741824 2>nul
                 )
+                echo Model: !model!
+                echo Serial Number: !serial!
+                echo Size: !sizeGB! GB
+                echo --------------------------------
+                set "DISK_PRINTED=1"
             )
+            REM reset for next disk entry
+            set "model="
+            set "serial="
+            set "size="
+            set "sizeGB="
         )
     )
-) else (
-    for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "Get-PhysicalDisk | ForEach-Object { Write-Output ('Model: ' + $_.Model); Write-Output ('Serial Number: ' + $_.SerialNumber); $sizeGB = [math]::Round($_.Size / 1GB, 2); Write-Output ('Size: ' + $sizeGB + ' GB'); Write-Output '--------------------------------' }"`) do echo %%i
+
+    if "!DISK_PRINTED!"=="1" (
+        goto :DISK_DONE
+    )
 )
+
+REM PowerShell fallback (silent)
+for /f "usebackq tokens=1,2,* delims=," %%a in (`
+    powershell -NoProfile -Command "Get-PhysicalDisk 2>$null | ForEach-Object { $m = if ($_.Model) {$_.Model} else {'N/A'}; $s = if ($_.SerialNumber) {$_.SerialNumber} else {'N/A'}; $sz = if ($_.Size) {[math]::Round($_.Size/1GB,2)} else {0}; Write-Output ('{0},{1},{2}' -f $m,$s,$sz) }"
+`) do (
+    set "model=%%a"
+    set "serial=%%b"
+    set "size=%%c"
+    if "!model!"=="" set "model=N/A"
+    if "!serial!"=="" set "serial=N/A"
+    if "!size!"=="" set "size=0"
+    set "size=!size: =!"
+    echo Model: !model!
+    echo Serial Number: !serial!
+    echo Size: !size! GB
+    echo ---------------------------------
+    set "DISK_PRINTED=1"
+)
+
+:DISK_DONE
+if "!DISK_PRINTED!"=="0" (
+    echo No disk drives found or unable to retrieve disk information.
+    echo --------------------------------
+)
+
 echo.
 
 :: Operating System Information
