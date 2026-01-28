@@ -70,7 +70,7 @@ if "!USE_WMIC!"=="1" (
                 echo Model: !model!
                 echo Serial Number: !serial!
                 echo Size: !sizeGB! GB
-                echo --------------------------------
+                echo ----------------------------------------------------------------
                 set "DISK_PRINTED=1"
             )
             REM reset for next disk entry
@@ -100,14 +100,14 @@ for /f "usebackq tokens=1,2,* delims=," %%a in (`
     echo Model: !model!
     echo Serial Number: !serial!
     echo Size: !size! GB
-    echo ---------------------------------
+    echo ----------------------------------------------------------------
     set "DISK_PRINTED=1"
 )
 
 :DISK_DONE
 if "!DISK_PRINTED!"=="0" (
     echo No disk drives found or unable to retrieve disk information.
-    echo --------------------------------
+    echo ----------------------------------------------------------------
 )
 
 echo.
@@ -138,50 +138,83 @@ if !errorlevel!==0 (
 )
 echo.
 
-:: Group Policy Status
-echo [5] GROUP POLICY STATUS
-echo ----------------------------------------------------------------
-for /f "tokens=*" %%a in ('whoami') do set "currentuser=%%a"
-echo Checking Group Policy for user: %currentuser%
-echo.
-gpresult /r 2>nul | findstr /C:"applied Group Policy objects" >nul
-if !errorlevel!==0 (
-    echo Group Policy: ENABLED and Applied
-    echo.
-    echo Applied Group Policies:
-    gpresult /r 2>nul | findstr /C:"Applied Group Policy"
-) else (
-    gpresult /r 2>nul >nul
-    if !errorlevel!==0 (
-        echo Group Policy: AVAILABLE but No policies applied
-        echo Note: This is likely a standalone system with no Group Policy Objects configured
-    ) else (
-        echo Group Policy: Access denied - Run as Administrator
-    )
-)
-echo.
-
-:: Firewall Status
-echo [6] Firewall Authentication (IPsec):
+:: Active Directory & Group Policy Verification
+echo [5] ACTIVE DIRECTORY AND GROUP POLICY STATUS
 echo ----------------------------------------------------------------
 
-:: Initialize a flag
-set "FW_AUTH_ENABLED=0"
-
-:: Loop through the netsh output and look for any rule names
-for /f "usebackq tokens=*" %%A in (`netsh advfirewall consec show rule name=all 2^>nul`) do (
-    echo %%A | findstr /I "Rule Name" >nul
-    if !errorlevel! equ 0 set "FW_AUTH_ENABLED=1"
-)
-
-:: Print result based on flag
-if !FW_AUTH_ENABLED! equ 1 (
-    echo Firewall Authentication: ENABLED
-    echo IPsec connection security rules are present.
+:: Domain join check (use WMIC if available, otherwise PowerShell)
+set "partofdomain="
+if "!USE_WMIC!"=="1" (
+    for /f "tokens=2 delims==" %%A in ('wmic computersystem get partofdomain /value 2^>nul ^| find "="') do set "partofdomain=%%A"
 ) else (
-    echo Firewall Authentication: NOT ENABLED
-    echo No IPsec connection security rules found.
+    for /f "usebackq tokens=* delims=" %%A in (`powershell -NoProfile -Command "(Get-CimInstance Win32_ComputerSystem).PartOfDomain" 2^>nul`) do set "partofdomain=%%A"
 )
+
+:: Trim leading/trailing spaces (simple leading trim)
+for /f "tokens=* delims= " %%T in ("!partofdomain!") do set "partofdomain=%%T"
+
+if /i "!partofdomain!"=="TRUE" (
+    echo [OK] Domain Join: Machine is domain-joined
+) else (
+    echo [XX] Domain Join: Machine is NOT domain-joined
+    goto :endgp
+)
+
+:: Secure channel check (only if domain-joined)
+nltest /sc_verify:%USERDOMAIN% >nul 2>&1
+if %errorlevel%==0 (
+    echo [OK] Secure Channel: Domain controller reachable
+) else (
+    echo [XX] Secure Channel: FAILED - AD not enforcing policies
+    goto :endgp
+)
+
+:: Force GP refresh
+gpupdate /force >nul 2>&1
+
+:: Verify Computer GPOs
+gpresult /r /scope computer | findstr /C:"Applied Group Policy Objects" >nul
+if %errorlevel%==0 (
+    echo [OK] Computer GPOs: Applied from Active Directory
+) else (
+    echo [XX] Computer GPOs: NOT applied from AD
+)
+
+:: Verify User GPOs
+gpresult /r /scope user | findstr /C:"Applied Group Policy Objects" >nul
+if %errorlevel%==0 (
+    echo [OK] User GPOs: Applied from Active Directory
+) else (
+    echo [XX] User GPOs: NOT applied from AD
+)
+
+:endgp
+echo.
+
+:: Firewall / Browser Authentication Verification
+echo [6] FIREWALL AUTHENTICATION STATUS
+echo ----------------------------------------------------------------
+
+powershell -Command "try { $resp = Invoke-WebRequest 'https://www.google.com' -UseBasicParsing -MaximumRedirection 0 -TimeoutSec 5 -ErrorAction Stop; if ($resp.StatusCode -eq 407) { exit 1 } else { exit 0 } } catch { exit 2 }"
+
+set FW_RESULT=%errorlevel%
+
+if "%FW_RESULT%"=="0" (
+    echo [XX] Firewall Authentication: NOT ACTIVE
+    echo Browser authentication not required yet ^(direct access allowed^)
+)
+
+if "%FW_RESULT%"=="1" (
+    echo [OK] Firewall Authentication: ACTIVE
+    echo Browser-authenticated internet access is required and enforced
+)
+
+if "%FW_RESULT%"=="2" (
+    echo [XX] Firewall Authentication: FAILED
+    echo Internet access blocked or firewall is enforcing a strict policy
+
+)
+
 echo.
 
 
@@ -192,10 +225,13 @@ echo Testing connectivity to popular social media websites...
 echo This may take a few seconds...
 echo.
 
+:: Function-like pattern using PowerShell
+:: --------------------------------------
+
 :: Test Facebook
 echo Testing Facebook...
-ping -n 1 -w 2000 www.facebook.com >nul 2>&1
-if !errorlevel!==0 (
+powershell -Command "try { Invoke-WebRequest https://www.facebook.com -UseBasicParsing -TimeoutSec 5 | Out-Null; exit 0 } catch { exit 1 }"
+if !errorlevel! EQU 0 (
     echo [OK] Facebook: WORKING - Website is accessible
 ) else (
     echo [XX] Facebook: NOT WORKING - Cannot reach website
@@ -203,8 +239,8 @@ if !errorlevel!==0 (
 
 :: Test Instagram
 echo Testing Instagram...
-ping -n 1 -w 2000 www.instagram.com >nul 2>&1
-if !errorlevel!==0 (
+powershell -Command "try { Invoke-WebRequest https://www.instagram.com -UseBasicParsing -TimeoutSec 5 | Out-Null; exit 0 } catch { exit 1 }"
+if !errorlevel! EQU 0 (
     echo [OK] Instagram: WORKING - Website is accessible
 ) else (
     echo [XX] Instagram: NOT WORKING - Cannot reach website
@@ -212,8 +248,8 @@ if !errorlevel!==0 (
 
 :: Test Twitter/X
 echo Testing Twitter/X...
-ping -n 1 -w 2000 www.twitter.com >nul 2>&1
-if !errorlevel!==0 (
+powershell -Command "try { Invoke-WebRequest https://www.twitter.com -UseBasicParsing -TimeoutSec 5 | Out-Null; exit 0 } catch { exit 1 }"
+if !errorlevel! EQU 0 (
     echo [OK] Twitter/X: WORKING - Website is accessible
 ) else (
     echo [XX] Twitter/X: NOT WORKING - Cannot reach website
@@ -221,8 +257,8 @@ if !errorlevel!==0 (
 
 :: Test LinkedIn
 echo Testing LinkedIn...
-ping -n 1 -w 2000 www.linkedin.com >nul 2>&1
-if !errorlevel!==0 (
+powershell -Command "try { Invoke-WebRequest https://www.linkedin.com -UseBasicParsing -TimeoutSec 5 | Out-Null; exit 0 } catch { exit 1 }"
+if !errorlevel! EQU 0 (
     echo [OK] LinkedIn: WORKING - Website is accessible
 ) else (
     echo [XX] LinkedIn: NOT WORKING - Cannot reach website
@@ -230,8 +266,8 @@ if !errorlevel!==0 (
 
 :: Test YouTube
 echo Testing YouTube...
-ping -n 1 -w 2000 www.youtube.com >nul 2>&1
-if !errorlevel!==0 (
+powershell -Command "try { Invoke-WebRequest https://www.youtube.com -UseBasicParsing -TimeoutSec 5 | Out-Null; exit 0 } catch { exit 1 }"
+if !errorlevel! EQU 0 (
     echo [OK] YouTube: WORKING - Website is accessible
 ) else (
     echo [XX] YouTube: NOT WORKING - Cannot reach website
@@ -239,8 +275,8 @@ if !errorlevel!==0 (
 
 :: Test TikTok
 echo Testing TikTok...
-ping -n 1 -w 2000 www.tiktok.com >nul 2>&1
-if !errorlevel!==0 (
+powershell -Command "try { Invoke-WebRequest https://www.tiktok.com -UseBasicParsing -TimeoutSec 5 | Out-Null; exit 0 } catch { exit 1 }"
+if !errorlevel! EQU 0 (
     echo [OK] TikTok: WORKING - Website is accessible
 ) else (
     echo [XX] TikTok: NOT WORKING - Cannot reach website
@@ -248,8 +284,8 @@ if !errorlevel!==0 (
 
 :: Test WhatsApp Web
 echo Testing WhatsApp Web...
-ping -n 1 -w 2000 web.whatsapp.com >nul 2>&1
-if !errorlevel!==0 (
+powershell -Command "try { Invoke-WebRequest https://web.whatsapp.com -UseBasicParsing -TimeoutSec 5 | Out-Null; exit 0 } catch { exit 1 }"
+if !errorlevel! EQU 0 (
     echo [OK] WhatsApp Web: WORKING - Website is accessible
 ) else (
     echo [XX] WhatsApp Web: NOT WORKING - Cannot reach website
@@ -257,8 +293,8 @@ if !errorlevel!==0 (
 
 :: Test Reddit
 echo Testing Reddit...
-ping -n 1 -w 2000 www.reddit.com >nul 2>&1
-if !errorlevel!==0 (
+powershell -Command "try { Invoke-WebRequest https://www.reddit.com -UseBasicParsing -TimeoutSec 5 | Out-Null; exit 0 } catch { exit 1 }"
+if !errorlevel! EQU 0 (
     echo [OK] Reddit: WORKING - Website is accessible
 ) else (
     echo [XX] Reddit: NOT WORKING - Cannot reach website
@@ -266,8 +302,8 @@ if !errorlevel!==0 (
 
 :: Test Snapchat
 echo Testing Snapchat...
-ping -n 1 -w 2000 www.snapchat.com >nul 2>&1
-if !errorlevel!==0 (
+powershell -Command "try { Invoke-WebRequest https://www.snapchat.com -UseBasicParsing -TimeoutSec 5 | Out-Null; exit 0 } catch { exit 1 }"
+if !errorlevel! EQU 0 (
     echo [OK] Snapchat: WORKING - Website is accessible
 ) else (
     echo [XX] Snapchat: NOT WORKING - Cannot reach website
@@ -275,8 +311,8 @@ if !errorlevel!==0 (
 
 :: Test Pinterest
 echo Testing Pinterest...
-ping -n 1 -w 2000 www.pinterest.com >nul 2>&1
-if !errorlevel!==0 (
+powershell -Command "try { Invoke-WebRequest https://www.pinterest.com -UseBasicParsing -TimeoutSec 5 | Out-Null; exit 0 } catch { exit 1 }"
+if !errorlevel! EQU 0 (
     echo [OK] Pinterest: WORKING - Website is accessible
 ) else (
     echo [XX] Pinterest: NOT WORKING - Cannot reach website
@@ -284,12 +320,13 @@ if !errorlevel!==0 (
 
 echo.
 echo General Internet Connectivity Test:
-ping -n 1 -w 2000 8.8.8.8 >nul 2>&1
-if !errorlevel!==0 (
-    echo [OK] Internet Connection: ACTIVE - Google DNS reachable
+powershell -Command "try { Invoke-WebRequest https://www.google.com -UseBasicParsing -TimeoutSec 5 | Out-Null; exit 0 } catch { exit 1 }"
+if !errorlevel! EQU 0 (
+    echo [OK] Internet Connection: ACTIVE
 ) else (
     echo [XX] Internet Connection: NO CONNECTION or Limited
 )
+
 echo.
 
 :: USB Storage Devices
@@ -334,7 +371,7 @@ ipconfig /all > "%TEMP%\ipconfig_temp.txt"
 
 for /f "usebackq tokens=*" %%a in ("%TEMP%\ipconfig_temp.txt") do (
     set "line=%%a"
-    
+   
     REM Check if this is a new adapter line
     echo !line! | findstr /C:"adapter" >nul
     if !errorlevel!==0 (
@@ -347,11 +384,11 @@ for /f "usebackq tokens=*" %%a in ("%TEMP%\ipconfig_temp.txt") do (
             echo.
             set ADAPTER_FOUND=1
         )
-        
+       
         set READING_ADAPTER=0
         set WAITING_GW=0
         set CURRENT_ADAPTER=!line!
-        
+       
         REM Check if we should process this adapter
         echo !line! | findstr /I /C:"VMware" /C:"VirtualBox" /C:"Hyper-V" /C:"Virtual" /C:"TAP-" /C:"Loopback" >nul
         if !errorlevel! neq 0 (
@@ -366,7 +403,7 @@ for /f "usebackq tokens=*" %%a in ("%TEMP%\ipconfig_temp.txt") do (
             )
         )
     )
-    
+   
     REM Collect data if we're reading this adapter
     if !READING_ADAPTER!==1 (
         REM Get IPv4 Address
@@ -386,7 +423,7 @@ for /f "usebackq tokens=*" %%a in ("%TEMP%\ipconfig_temp.txt") do (
                 )
             )
         )
-        
+       
         REM Get Subnet Mask
         echo !line! | findstr /C:"Subnet Mask" >nul
         if !errorlevel!==0 (
@@ -396,7 +433,7 @@ for /f "usebackq tokens=*" %%a in ("%TEMP%\ipconfig_temp.txt") do (
                 set TEMP_MASK=!maskclean!
             )
         )
-        
+       
         REM Detect Default Gateway label
         echo !line! | findstr /C:"Default Gateway" >nul
         if !errorlevel!==0 (
@@ -415,7 +452,7 @@ for /f "usebackq tokens=*" %%a in ("%TEMP%\ipconfig_temp.txt") do (
                 )
             )
         )
-        
+       
         REM Capture Default Gateway value from next line if waiting
         if !WAITING_GW!==1 (
             set "gwcandidate=!line!"
