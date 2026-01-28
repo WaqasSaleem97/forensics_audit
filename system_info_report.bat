@@ -217,7 +217,6 @@ if "%FW_RESULT%"=="2" (
 
 echo.
 
-
 :: Social Media Websites Connectivity Check
 echo [7] SOCIAL MEDIA WEBSITES CONNECTIVITY CHECK
 echo ----------------------------------------------------------------
@@ -225,109 +224,131 @@ echo Testing connectivity to popular social media websites...
 echo This may take a few seconds...
 echo.
 
-:: Function-like pattern using PowerShell
-:: --------------------------------------
+REM detect curl
+set "CURL_AVAILABLE=0"
+where curl >nul 2>&1
+if %ERRORLEVEL% equ 0 set "CURL_AVAILABLE=1"
 
-:: Test Facebook
-echo Testing Facebook...
-powershell -Command "try { Invoke-WebRequest https://www.facebook.com -UseBasicParsing -TimeoutSec 5 | Out-Null; exit 0 } catch { exit 1 }"
-if !errorlevel! EQU 0 (
-    echo [OK] Facebook: WORKING - Website is accessible
-) else (
-    echo [XX] Facebook: NOT WORKING - Cannot reach website
-)
+REM one-time proxy credential prompt state (kept for later use)
+set "PROXY_PROMPTED=0"
+set "PROXY_USER="
+set "PROXY_PASS="
+set "PROXY_AUTH=negotiate"
 
-:: Test Instagram
-echo Testing Instagram...
-powershell -Command "try { Invoke-WebRequest https://www.instagram.com -UseBasicParsing -TimeoutSec 5 | Out-Null; exit 0 } catch { exit 1 }"
-if !errorlevel! EQU 0 (
-    echo [OK] Instagram: WORKING - Website is accessible
-) else (
-    echo [XX] Instagram: NOT WORKING - Cannot reach website
-)
+REM --- calls (must be before the :CheckSiteCurl label) ---
+call :CheckSiteCurl "Facebook" "https://www.facebook.com" "www.facebook.com"
+call :CheckSiteCurl "Instagram" "https://www.instagram.com" "www.instagram.com"
+call :CheckSiteCurl "Twitter or X" "https://www.twitter.com" "www.twitter.com"
+call :CheckSiteCurl "LinkedIn" "https://www.linkedin.com" "www.linkedin.com"
+call :CheckSiteCurl "YouTube" "https://www.youtube.com" "www.youtube.com"
+call :CheckSiteCurl "TikTok" "https://www.tiktok.com" "www.tiktok.com"
+call :CheckSiteCurl "WhatsApp Web" "https://web.whatsapp.com" "web.whatsapp.com"
+call :CheckSiteCurl "Reddit" "https://www.reddit.com" "www.reddit.com"
+call :CheckSiteCurl "Snapchat" "https://www.snapchat.com" "www.snapchat.com"
+call :CheckSiteCurl "Pinterest" "https://www.pinterest.com" "www.pinterest.com"
 
-:: Test Twitter/X
-echo Testing Twitter/X...
-powershell -Command "try { Invoke-WebRequest https://www.twitter.com -UseBasicParsing -TimeoutSec 5 | Out-Null; exit 0 } catch { exit 1 }"
-if !errorlevel! EQU 0 (
-    echo [OK] Twitter/X: WORKING - Website is accessible
-) else (
-    echo [XX] Twitter/X: NOT WORKING - Cannot reach website
-)
-
-:: Test LinkedIn
-echo Testing LinkedIn...
-powershell -Command "try { Invoke-WebRequest https://www.linkedin.com -UseBasicParsing -TimeoutSec 5 | Out-Null; exit 0 } catch { exit 1 }"
-if !errorlevel! EQU 0 (
-    echo [OK] LinkedIn: WORKING - Website is accessible
-) else (
-    echo [XX] LinkedIn: NOT WORKING - Cannot reach website
-)
-
-:: Test YouTube
-echo Testing YouTube...
-powershell -Command "try { Invoke-WebRequest https://www.youtube.com -UseBasicParsing -TimeoutSec 5 | Out-Null; exit 0 } catch { exit 1 }"
-if !errorlevel! EQU 0 (
-    echo [OK] YouTube: WORKING - Website is accessible
-) else (
-    echo [XX] YouTube: NOT WORKING - Cannot reach website
-)
-
-:: Test TikTok
-echo Testing TikTok...
-powershell -Command "try { Invoke-WebRequest https://www.tiktok.com -UseBasicParsing -TimeoutSec 5 | Out-Null; exit 0 } catch { exit 1 }"
-if !errorlevel! EQU 0 (
-    echo [OK] TikTok: WORKING - Website is accessible
-) else (
-    echo [XX] TikTok: NOT WORKING - Cannot reach website
-)
-
-:: Test WhatsApp Web
-echo Testing WhatsApp Web...
-powershell -Command "try { Invoke-WebRequest https://web.whatsapp.com -UseBasicParsing -TimeoutSec 5 | Out-Null; exit 0 } catch { exit 1 }"
-if !errorlevel! EQU 0 (
-    echo [OK] WhatsApp Web: WORKING - Website is accessible
-) else (
-    echo [XX] WhatsApp Web: NOT WORKING - Cannot reach website
-)
-
-:: Test Reddit
-echo Testing Reddit...
-powershell -Command "try { Invoke-WebRequest https://www.reddit.com -UseBasicParsing -TimeoutSec 5 | Out-Null; exit 0 } catch { exit 1 }"
-if !errorlevel! EQU 0 (
-    echo [OK] Reddit: WORKING - Website is accessible
-) else (
-    echo [XX] Reddit: NOT WORKING - Cannot reach website
-)
-
-:: Test Snapchat
-echo Testing Snapchat...
-powershell -Command "try { Invoke-WebRequest https://www.snapchat.com -UseBasicParsing -TimeoutSec 5 | Out-Null; exit 0 } catch { exit 1 }"
-if !errorlevel! EQU 0 (
-    echo [OK] Snapchat: WORKING - Website is accessible
-) else (
-    echo [XX] Snapchat: NOT WORKING - Cannot reach website
-)
-
-:: Test Pinterest
-echo Testing Pinterest...
-powershell -Command "try { Invoke-WebRequest https://www.pinterest.com -UseBasicParsing -TimeoutSec 5 | Out-Null; exit 0 } catch { exit 1 }"
-if !errorlevel! EQU 0 (
-    echo [OK] Pinterest: WORKING - Website is accessible
-) else (
-    echo [XX] Pinterest: NOT WORKING - Cannot reach website
-)
-
-echo.
+REM General Internet Connectivity Test (same flow)
 echo General Internet Connectivity Test:
-powershell -Command "try { Invoke-WebRequest https://www.google.com -UseBasicParsing -TimeoutSec 5 | Out-Null; exit 0 } catch { exit 1 }"
-if !errorlevel! EQU 0 (
-    echo [OK] Internet Connection: ACTIVE
+echo ----------------------------------------------------------------
+call :CheckSiteCurl "Google" "https://www.google.com" "www.google.com"
+
+echo Completed checks.
+
+goto :after_checks
+
+:PromptProxyCreds
+set "PROXY_PROMPTED=1"
+set /p PROXY_USER="Enter proxy username (domain\\user or user@domain) [leave empty to skip]: "
+if "%PROXY_USER%"=="" (
+    set "PROXY_PASS="
+    set "PROXY_AUTH="
+    goto :PromptDone
+)
+
+REM read password securely via PowerShell (plaintext returned locally)
+for /f "usebackq delims=" %%P in (`
+    powershell -NoProfile -Command "Write-Output ([Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR( (Read-Host -AsSecureString 'Proxy password') )))"
+`) do set "PROXY_PASS=%%P"
+
+echo Select proxy auth type:
+echo  1) negotiate (default)
+echo  2) ntlm
+echo  3) basic
+set /p PROXY_AUTH_OPT="Choose 1-3 (default 1): "
+if "%PROXY_AUTH_OPT%"=="2" set "PROXY_AUTH=ntlm"
+if "%PROXY_AUTH_OPT%"=="3" set "PROXY_AUTH=basic"
+if "%PROXY_AUTH_OPT%"=="" set "PROXY_AUTH=negotiate"
+
+:PromptDone
+goto :eof
+
+:CheckSiteCurl
+REM params: %~1 = Display name, %~2 = URL, %~3 = hostname
+set "NAME=%~1"
+set "URL=%~2"
+set "HOST=%~3"
+
+echo Testing %NAME%...
+
+if "%CURL_AVAILABLE%"=="1" (
+
+    REM ---------- First attempt: no proxy creds ----------
+    set "HTTP_CODE="
+    for /f "delims=" %%H in ('
+        curl -I -L --max-time 8 --silent -o nul -w "%%{http_code}" "%URL%"
+    ') do set "HTTP_CODE=%%H"
+
+    REM ---------- If proxy auth required ----------
+    if "!HTTP_CODE!"=="407" (
+        if "%PROXY_PROMPTED%"=="0" call :PromptProxyCreds
+
+        REM Retry only if user entered credentials
+        if defined PROXY_USER (
+            set "HTTP_CODE="
+            if /i "%PROXY_AUTH%"=="ntlm" (
+                curl -I -L --max-time 8 --silent -o nul -w "%%{http_code}" ^
+                --proxy-ntlm --proxy-user "!PROXY_USER!:!PROXY_PASS!" "%URL%"
+            ) else if /i "%PROXY_AUTH%"=="basic" (
+                curl -I -L --max-time 8 --silent -o nul -w "%%{http_code}" ^
+                --proxy-user "!PROXY_USER!:!PROXY_PASS!" "%URL%"
+            ) else (
+                curl -I -L --max-time 8 --silent -o nul -w "%%{http_code}" ^
+                --proxy-negotiate --proxy-user "!PROXY_USER!:!PROXY_PASS!" "%URL%"
+            ) > "%TEMP%\httpcode.tmp"
+
+            set /p HTTP_CODE=<"%TEMP%\httpcode.tmp"
+            del "%TEMP%\httpcode.tmp" >nul 2>&1
+        )
+    )
+
+    REM ---------- Final decision ----------
+    if defined HTTP_CODE (
+        set /a CODE=!HTTP_CODE! 2>nul
+        if !CODE! GEQ 200 if !CODE! LEQ 499 (
+            echo [OK] %NAME%: WORKING - HTTP !HTTP_CODE!
+        ) else (
+            echo [XX] %NAME%: NOT WORKING - HTTP !HTTP_CODE!
+        )
+    ) else (
+        echo [XX] %NAME%: NOT WORKING - No HTTP response
+    )
+
+    echo.
+    goto :eof
+)
+
+REM ---------- curl missing fallback ----------
+ping -n 1 -w 2000 %HOST% >nul 2>&1
+if not errorlevel 1 (
+    echo [OK] %NAME%: WORKING - ICMP reachable (curl not installed)
 ) else (
-    echo [XX] Internet Connection: NO CONNECTION or Limited
+    echo [XX] %NAME%: NOT WORKING - curl not installed and ICMP failed
 )
 
 echo.
+goto :eof
+
+:after_checks
 
 :: USB Storage Devices
 echo [8] USB STORAGE DEVICES HISTORY
